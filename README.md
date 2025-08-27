@@ -22,4 +22,7 @@ To do so:
 Utilises `OpenCV` and multithreading (`multiprocessing`) for
 maximum speed.
 
+Example output:
+<img src="example/find_best/00000_HSV_0.png" alt="result"/>
+
 Based on https://stackoverflow.com/a/66355953
