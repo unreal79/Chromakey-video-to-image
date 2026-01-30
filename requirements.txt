@@ -1,0 +1,7 @@
+# Chromakey Video to Image - Python Dependencies
+
+# OpenCV for image and video processing
+opencv-python>=4.5.0
+
+# NumPy for numerical operations (required by OpenCV)
+numpy>=1.19.0
