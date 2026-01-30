@@ -27,6 +27,7 @@
 """
 
 import os
+import argparse
 import multiprocessing
 import signal
 import cv2 # pip install opencv-python
@@ -97,15 +98,17 @@ def thread_worker(img, frame_count, output_folder, mask_as_hsv, mask_channel, ma
     unique_colors, counts = np.unique(channel_mask, return_counts=True)
 
     # sort through and grab the most abundant unique color
-    big_color = None
+    big_color = 0
     biggest = -1
     for a in range(len(unique_colors)):
         if counts[a] > biggest:
             biggest = counts[a]
             big_color = int(unique_colors[a])
 
-    # get the color mask
-    mask = cv2.inRange(channel_mask, big_color - margin, big_color + margin)
+    # get the color mask (clamp bounds to valid uint8 range)
+    lower = int(max(0, big_color - margin))
+    upper = int(min(255, big_color + margin))
+    mask = cv2.inRange(channel_mask, lower, upper)  # type: ignore
 
     # smooth out the mask
     if dilate > 0 and kernel_ones > 0:
@@ -136,7 +139,7 @@ def thread_worker(img, frame_count, output_folder, mask_as_hsv, mask_channel, ma
     print(f"Saved: {frame_filename}")
 
 
-def chromakey_image2png(path: str, output_folder: str, output_filename: str = None, mask_as_hsv = True,
+def chromakey_image2png(path: str, output_folder: str, output_filename: str = "", mask_as_hsv = True,
                         mask_channel = 1, margin = 50, kernel_ones = 3, dilate = 1, blur = 5,
                         mask_out = False, post_process = False, post_process_margin = 20):
     """Processes a single image and applies chromakey effect.
@@ -163,14 +166,63 @@ def chromakey_image2png(path: str, output_folder: str, output_filename: str = No
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    # Determine output filename
+    # Determine output filename prefix
     if output_filename is None:
         base_name = os.path.splitext(os.path.basename(path))[0]
         output_filename = base_name
 
     try:
-        thread_worker(img, 0, output_folder, mask_as_hsv, mask_channel, margin,
-                      kernel_ones, dilate, blur, mask_out, post_process, post_process_margin)
+        # Process image directly without multiprocessing pool (it's only one image)
+        if mask_as_hsv:
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            channels = cv2.split(hsv)
+        else:
+            channels = cv2.split(img)
+        channel_mask = channels[mask_channel]
+
+        # get uniques
+        unique_colors, counts = np.unique(channel_mask, return_counts=True)
+
+        # sort through and grab the most abundant unique color
+        big_color = 0
+        biggest = -1
+        for a in range(len(unique_colors)):
+            if counts[a] > biggest:
+                biggest = counts[a]
+                big_color = int(unique_colors[a])
+
+        # get the color mask (clamp bounds to valid uint8 range)
+        lower = int(max(0, big_color - margin))
+        upper = int(min(255, big_color + margin))
+        mask = cv2.inRange(channel_mask, lower, upper)  # type: ignore
+
+        # smooth out the mask
+        if dilate > 0 and kernel_ones > 0:
+            kernel = np.ones((kernel_ones, kernel_ones), np.uint8)
+            mask = cv2.dilate(mask, kernel, iterations = dilate)
+        if blur > 0:
+            mask = cv2.medianBlur(mask, blur)
+
+        crop = np.dstack((img, mask)) # add mask as alpha channel
+
+        if mask_out: # to see what's masked out
+            frame_filename = os.path.join(output_folder,
+                    f"{output_filename}_{'HSV' if mask_as_hsv else 'BGR'}_{mask_channel}_mask.png")
+            cv2.imwrite(frame_filename, crop)
+            print(f"Saved: {frame_filename}")
+
+        # Set alpha channel
+        alpha = cv2.bitwise_not(mask)
+        crop[:, :, 3] = alpha
+
+        # Apply post-processing (desaturate edges)
+        if post_process:
+            crop = post_process_image(crop, mask_as_hsv, mask_channel, big_color, post_process_margin)
+
+        frame_filename = os.path.join(output_folder,
+                f"{output_filename}_{'HSV' if mask_as_hsv else 'BGR'}_{mask_channel}.png")
+        cv2.imwrite(frame_filename, crop)
+        print(f"Saved: {frame_filename}")
     except KeyboardInterrupt:
         print("Process caught KeyboardInterrupt.")
     finally:
@@ -230,46 +282,154 @@ def chromakey_video2png(path: str, output_folder: str, mask_as_hsv = True, mask_
         print("Job finished")
 
 
-def find_best():
+def find_best(path: str, output_folder: str, is_image: bool = False):
     """
-    Creates a set of cropped images to choose best result.
-    You have to decide what's a best option and use it on full video.
+    Creates a set of cropped images/frames to choose best result.
+    You have to decide what's a best option and use it for full processing.
+
+    Args:
+        path (str): Path to input video or image
+        output_folder (str): Output folder for the results
+        is_image (bool, optional): If True, processes as image; if False, processes as video. Defaults to False.
     """
     for ix in [True, False]:
         for jx in [0, 1, 2]:
-            chromakey_video2png(
-                path = "bull/ComfyUI_20260118_212444_I2V_00001.mp4",
-                output_folder = "bull/find_best",
-                mask_as_hsv = ix,
-                mask_channel = jx,
-                margin = 30,
-                kernel_ones = 0,
-                dilate = 0,
-                blur = 0,
-                frames_max = 1,
-                mask_out = True,
-                post_process = True,
-                post_process_margin = 110
-            )
+            if is_image:
+                chromakey_image2png(
+                    path = path,
+                    output_folder = output_folder,
+                    mask_as_hsv = ix,
+                    mask_channel = jx,
+                    margin = 30,
+                    kernel_ones = 0,
+                    dilate = 0,
+                    blur = 0,
+                    mask_out = True,
+                    post_process = False,
+                    post_process_margin = 110
+                )
+            else:
+                chromakey_video2png(
+                    path = path,
+                    output_folder = output_folder,
+                    mask_as_hsv = ix,
+                    mask_channel = jx,
+                    margin = 30,
+                    kernel_ones = 0,
+                    dilate = 0,
+                    blur = 0,
+                    frames_max = 1,
+                    mask_out = True,
+                    post_process = False,
+                    post_process_margin = 110
+                )
 
 
 def main():
-    chromakey_video2png(
-            path = "bull/ComfyUI_20260118_212444_I2V_00001.mp4", # input video
-            output_folder = "bull/chromakey_out", # output directory
-            mask_as_hsv = False, # convert to HSV color space to mask?
-            mask_channel = 0, # 0 = Hue/Blue, 1 = Saturation/Green, 2 = Value/Red
-            margin = 10, # other mask options
-            kernel_ones = 2, # crop blur kernel size
-            dilate = 1, # crop dilate size
-            blur = 5, # crop blur size
-            frames_max = 1, # if < 0 == all feames
-            mask_out = False, # additionally output masked-out file
-            post_process = True, # desaturate edges
-            post_process_margin = 200 # margin for desaturating edges
+    parser = argparse.ArgumentParser(
+        description='Chromakey-like video/image cropping without actual green screen. '
+                    'Resulted PNG files will contain alpha channel for transparency.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''Examples:
+  Process a video:
+    python chromakey_video2png.py --video input.mp4 -o output/ --margin 50 --blur 5
+
+  Process an image:
+    python chromakey_video2png.py --image input.png -o output/ --mask-channel 0
+
+  Find best parameters:
+    python chromakey_video2png.py --find-best input.mp4 -o best_results/
+    python chromakey_video2png.py --find-best-image input.png -o best_results/
+        '''
     )
+
+    # Input source (mutually exclusive)
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument('-v', '--video', type=str,
+                            help='Path to input video file')
+    input_group.add_argument('-i', '--image', type=str,
+                            help='Path to input image file')
+    input_group.add_argument('--find-best', type=str,
+                            help='Find best parameters for a video (outputs 6 combinations)')
+    input_group.add_argument('--find-best-image', type=str,
+                            help='Find best parameters for an image (outputs 6 combinations)')
+
+    # Output options
+    parser.add_argument('-o', '--output', type=str, required=True,
+                       help='Output folder for PNG files')
+    parser.add_argument('-f', '--frames', type=int, default=-1,
+                       help='Maximum number of frames to process for videos. -1 = all frames (default: -1)')
+
+    # Processing options
+    color_space_group = parser.add_mutually_exclusive_group()
+    color_space_group.add_argument('--hsv', action='store_true', default=True,
+                       help='Use HSV color space for masking (default: True)')
+    color_space_group.add_argument('--bgr', dest='hsv', action='store_false',
+                       help='Use BGR color space for masking instead of HSV')
+    parser.add_argument('-c', '--mask-channel', type=int, default=1,
+                       choices=[0, 1, 2],
+                       help='Mask channel: 0=Hue/Blue, 1=Saturation/Green, 2=Value/Red (default: 1)')
+    parser.add_argument('-m', '--margin', type=int, default=50,
+                       help='Crop margin (default: 50)')
+    parser.add_argument('-k', '--kernel', type=int, default=3,
+                       help='Crop blur kernel size (default: 3)')
+    parser.add_argument('-d', '--dilate', type=int, default=1,
+                       help='Crop dilate size (default: 1)')
+    parser.add_argument('-b', '--blur', type=int, default=5,
+                       help='Crop blur size (default: 5)')
+    parser.add_argument('--mask-out', action='store_true',
+                       help='Additionally output masked-out file')
+    parser.add_argument('--post-process', action='store_true',
+                       help='Apply post-processing (desaturate edges)')
+    parser.add_argument('--post-margin', type=int, default=20,
+                       help='Margin for post-processing (default: 20)')
+
+    args = parser.parse_args()
+
+    # Handle find-best commands
+    if args.find_best:
+        print(f"Finding best parameters for video: {args.find_best}")
+        find_best(args.find_best, args.output, is_image=False)
+        return
+
+    if args.find_best_image:
+        print(f"Finding best parameters for image: {args.find_best_image}")
+        find_best(args.find_best_image, args.output, is_image=True)
+        return
+
+    # Process video or image
+    if args.video:
+        print(f"Processing video: {args.video}")
+        chromakey_video2png(
+            path=args.video,
+            output_folder=args.output,
+            mask_as_hsv=args.hsv,
+            mask_channel=args.mask_channel,
+            margin=args.margin,
+            kernel_ones=args.kernel,
+            dilate=args.dilate,
+            blur=args.blur,
+            frames_max=args.frames,
+            mask_out=args.mask_out,
+            post_process=args.post_process,
+            post_process_margin=args.post_margin
+        )
+    elif args.image:
+        print(f"Processing image: {args.image}")
+        chromakey_image2png(
+            path=args.image,
+            output_folder=args.output,
+            mask_as_hsv=args.hsv,
+            mask_channel=args.mask_channel,
+            margin=args.margin,
+            kernel_ones=args.kernel,
+            dilate=args.dilate,
+            blur=args.blur,
+            mask_out=args.mask_out,
+            post_process=args.post_process,
+            post_process_margin=args.post_margin
+        )
 
 
 if __name__ == '__main__':
-    # find_best() # choose best result
-    main() # uncomment
+    main()
