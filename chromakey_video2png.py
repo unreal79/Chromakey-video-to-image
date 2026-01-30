@@ -136,6 +136,47 @@ def thread_worker(img, frame_count, output_folder, mask_as_hsv, mask_channel, ma
     print(f"Saved: {frame_filename}")
 
 
+def chromakey_image2png(path: str, output_folder: str, output_filename: str = None, mask_as_hsv = True,
+                        mask_channel = 1, margin = 50, kernel_ones = 3, dilate = 1, blur = 5,
+                        mask_out = False, post_process = False, post_process_margin = 20):
+    """Processes a single image and applies chromakey effect.
+    Args:
+        path (str): Path to input image
+        output_folder (str): Output folder for PNG file
+        output_filename (str, optional): Output filename. If None, uses input filename with suffix.
+        mask_as_hsv (bool, optional): Mask based on HSV color space? Defaults to True.
+        mask_channel (int, optional): 0 = Hue/Blue, 1 = Saturation/Green, 2 = Value/Red. Defaults to 1.
+        margin (int, optional): Crop margin. Defaults to 50.
+        kernel_ones (int, optional): Crop blur kernel size. Defaults to 3.
+        dilate (int, optional): Crop dilate size. Defaults to 1.
+        blur (int, optional): Crop blur size. Defaults to 5.
+        mask_out (bool, optional): Additionally output masked-out file. Defaults to False.
+        post_process (bool, optional): Desaturate edges. Defaults to False.
+        post_process_margin (int, optional): Margin for post-processing. Defaults to 20.
+    """
+    img = cv2.imread(path) # open image file
+
+    if img is None:
+        print(f"Error: Could not load image from {path}")
+        return
+
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    # Determine output filename
+    if output_filename is None:
+        base_name = os.path.splitext(os.path.basename(path))[0]
+        output_filename = base_name
+
+    try:
+        thread_worker(img, 0, output_folder, mask_as_hsv, mask_channel, margin,
+                      kernel_ones, dilate, blur, mask_out, post_process, post_process_margin)
+    except KeyboardInterrupt:
+        print("Process caught KeyboardInterrupt.")
+    finally:
+        print("Job finished")
+
+
 def chromakey_video2png(path: str, output_folder: str, mask_as_hsv = True, mask_channel = 1, margin = 50,
                         kernel_ones = 3, dilate = 1, blur = 5, frames_max = -1, mask_out = False,
                         post_process = False, post_process_margin = 20):
@@ -154,7 +195,7 @@ def chromakey_video2png(path: str, output_folder: str, mask_as_hsv = True, mask_
         post_process (bool, optional): Desaturate edges. Defaults to False.
         post_process_margin (int, optional): Margin for post-processing. Defaults to 20.
     """
-    cap = cv2.VideoCapture(path)
+    cap = cv2.VideoCapture(path) # open video file
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
