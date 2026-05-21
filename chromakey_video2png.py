@@ -36,12 +36,17 @@ import os
 import argparse
 import multiprocessing
 import signal
+from typing import Callable, Optional
 import cv2 # pip install opencv-python
 import numpy as np
 
 
 # Degree of desaturation: 1.0 = full grayscale, 0.0 = no change
 DESATURATE_FACTOR = 1.0
+
+
+ProgressCallback = Callable[[int, int], None]
+ResultCallback = Callable[[str], None]
 
 
 def post_process_image(img_rgba, mask_as_hsv, mask_channel, big_color, margin):
@@ -145,14 +150,16 @@ def thread_worker(img, frame_count, output_folder, mask_as_hsv, mask_channel, ma
     print(f"Saved: {frame_filename}")
 
 
-def chromakey_image2png(path: str, output_folder: str, output_filename: str = "", mask_as_hsv = True,
-                        mask_channel = 1, margin = 50, kernel_ones = 3, dilate = 1, blur = 5,
-                        mask_out = False, post_process = False, post_process_margin = 20):
+def chromakey_image2png(path: str, output_folder: str, output_filename: Optional[str] = None,
+                        mask_as_hsv = True, mask_channel = 1, margin = 50, kernel_ones = 3,
+                        dilate = 1, blur = 5, mask_out = False, post_process = False,
+                        post_process_margin = 20, progress_callback: Optional[ProgressCallback] = None,
+                        result_callback: Optional[ResultCallback] = None):
     """Processes a single image and applies chromakey effect.
     Args:
         path (str): Path to input image
         output_folder (str): Output folder for PNG file
-        output_filename (str, optional): Output filename. If None, uses input filename with suffix.
+        output_filename (str, optional): Output filename. If missing, uses input filename with suffix.
         mask_as_hsv (bool, optional): Mask based on HSV color space? Defaults to True.
         mask_channel (int, optional): 0 = Hue/Blue, 1 = Saturation/Green, 2 = Value/Red. Defaults to 1.
         margin (int, optional): Crop margin. Defaults to 50.
@@ -162,6 +169,8 @@ def chromakey_image2png(path: str, output_folder: str, output_filename: str = ""
         mask_out (bool, optional): Additionally output masked-out file. Defaults to False.
         post_process (bool, optional): Desaturate edges. Defaults to False.
         post_process_margin (int, optional): Margin for post-processing. Defaults to 20.
+        progress_callback (callable, optional): Receives processed and total item counts.
+        result_callback (callable, optional): Receives the saved preview file path.
     """
     img = cv2.imread(path) # open image file
 
@@ -173,7 +182,7 @@ def chromakey_image2png(path: str, output_folder: str, output_filename: str = ""
         os.makedirs(output_folder)
 
     # Determine output filename prefix
-    if output_filename is None:
+    if not output_filename:
         base_name = os.path.splitext(os.path.basename(path))[0]
         output_filename = base_name
 
@@ -229,6 +238,10 @@ def chromakey_image2png(path: str, output_folder: str, output_filename: str = ""
                 f"{output_filename}_{'HSV' if mask_as_hsv else 'BGR'}_{mask_channel}.png")
         cv2.imwrite(frame_filename, crop)
         print(f"Saved: {frame_filename}")
+        if result_callback is not None:
+            result_callback(frame_filename)
+        if progress_callback is not None:
+            progress_callback(1, 1)
     except KeyboardInterrupt:
         print("Process caught KeyboardInterrupt.")
     finally:
@@ -237,7 +250,9 @@ def chromakey_image2png(path: str, output_folder: str, output_filename: str = ""
 
 def chromakey_video2png(path: str, output_folder: str, mask_as_hsv = True, mask_channel = 1, margin = 50,
                         kernel_ones = 3, dilate = 1, blur = 5, frames_max = -1, mask_out = False,
-                        post_process = False, post_process_margin = 20):
+                        post_process = False, post_process_margin = 20,
+                        progress_callback: Optional[ProgressCallback] = None,
+                        result_callback: Optional[ResultCallback] = None):
     """Splits video to PNG files and crops them.
     Args:
         path (str): Path to input video
@@ -252,11 +267,21 @@ def chromakey_video2png(path: str, output_folder: str, mask_as_hsv = True, mask_
         mask_out (bool, optional): Additionally output masked-out file. Defaults to False.
         post_process (bool, optional): Desaturate edges. Defaults to False.
         post_process_margin (int, optional): Margin for post-processing. Defaults to 20.
+        progress_callback (callable, optional): Receives processed and total frame counts.
+        result_callback (callable, optional): Receives the first saved preview file path.
     """
     cap = cv2.VideoCapture(path) # open video file
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if frames_max > 0 and total_frames > 0:
+        total_to_process = min(total_frames, frames_max)
+    elif frames_max > 0:
+        total_to_process = frames_max
+    else:
+        total_to_process = total_frames
 
     pool = multiprocessing.Pool(processes=(multiprocessing.cpu_count() - 1))
 
@@ -274,6 +299,15 @@ def chromakey_video2png(path: str, output_folder: str, mask_as_hsv = True, mask_
                 args=(img, frame_count, output_folder, mask_as_hsv, mask_channel, margin,
                         kernel_ones, dilate, blur, mask_out, post_process, post_process_margin)
             ).get(600) # timeout 600 secs to catch KeyboardInterrupt
+
+            frame_filename = os.path.join(
+                output_folder,
+                f"{frame_count:05d}_{'HSV' if mask_as_hsv else 'BGR'}_{mask_channel}.png"
+            )
+            if frame_count == 0 and result_callback is not None:
+                result_callback(frame_filename)
+            if progress_callback is not None:
+                progress_callback(frame_count + 1, total_to_process)
 
             frame_count += 1
             if frame_count >= frames_max and frames_max > 0:

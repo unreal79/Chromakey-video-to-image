@@ -6,6 +6,7 @@ Chromakey-like video and image processing tool that removes backgrounds without 
 
 - **Process videos**: Extract and process all frames from video files
 - **Process images**: Process single images with background removal
+- **Interactive Gradio UI**: Tune parameters visually in a local web interface
 - **Automatic background detection**: Finds the most dominant color automatically
 - **Multiple color spaces**: Support for both HSV and BGR color space masking
 - **Parameter testing**: Built-in tool to find optimal parameters for your content
@@ -43,6 +44,15 @@ python chromakey_video2png.py --find-best input.mp4 -o test_results/
 ```bash
 python chromakey_video2png.py --find-best-image input.png -o test_results/
 ```
+
+**Launch the Gradio interface:**
+```bash
+python chromakey_gradio_ui.py
+```
+
+The Gradio app provides two stacked steps:
+1. Generate and compare the 6 `find-best` previews, then choose the preferred HSV/BGR + channel combination.
+2. Fine-tune processing parameters with interactive controls and run the full job with a progress bar and first-frame preview.
 
 ### Command Line Options
 
