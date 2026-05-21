@@ -523,19 +523,20 @@ with gr.Blocks(
             all_frames = gr.Checkbox(label="Process all frames", value=False)
             frames_slider = gr.Slider(label="Frames to process", minimum=1, maximum=MAX_FRAME_INPUT, value=10, step=1)
 
-        margin_slider = gr.Slider(label="Margin", minimum=0, maximum=255, value=50, step=1)
+        margin_slider = gr.Slider(label="Crop margin", minimum=0, maximum=255, value=50, step=1)
 
-        kernel_slider = gr.Slider(label="Kernel", minimum=0, maximum=31, value=3, step=1)
+        kernel_slider = gr.Slider(label="Kernel size for morphology", minimum=0, maximum=31, value=3, step=1)
 
-        dilate_slider = gr.Slider(label="Dilate", minimum=0, maximum=31, value=1, step=1)
+        dilate_slider = gr.Slider(label="Dilation iterations inside edges", minimum=0, maximum=31, value=1, step=1)
 
-        blur_slider = gr.Slider(label="Blur", minimum=0, maximum=31, value=5, step=1)
+        blur_slider = gr.Slider(label="Median blur size for edges", minimum=0, maximum=31, value=5, step=1)
 
         with gr.Row():
             mask_out = gr.Checkbox(label="Save mask preview files", value=False)
-            post_process = gr.Checkbox(label="Enable post-process desaturation", value=False)
+            post_process = gr.Checkbox(label="Enable post-process edge desaturation", value=False)
 
-        post_margin_slider = gr.Slider(label="Post-process margin", minimum=0, maximum=255, value=20, step=1)
+        post_margin_slider = gr.Slider(label="Post-process edge desaturation margin", minimum=0, maximum=255,
+                                       value=20, step=1)
 
         process_button = gr.Button("Process", variant="primary")
         process_preview = gr.Gallery(

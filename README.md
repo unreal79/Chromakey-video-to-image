@@ -6,7 +6,7 @@ Chromakey-like video and image processing tool that removes backgrounds without 
 
 - **Process videos**: Extract and process all frames from video files
 - **Process images**: Process single images with background removal
-- **Interactive Gradio UI**: Tune parameters visually in a local web interface
+- **Interactive Gradio UI**: Tune parameters visually in a local web interface (vibe-coded and has some problems with presentation)
 - **Automatic background detection**: Finds the most dominant color automatically
 - **Multiple color spaces**: Support for both HSV and BGR color space masking
 - **Parameter testing**: Built-in tool to find optimal parameters for your content
